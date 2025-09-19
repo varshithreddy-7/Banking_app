@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Banking Patterns Demo — Observer, Strategy, Command</title>
+  <style>
+    :root{--bg:#0f1724;--card:#0b1220;--muted:#94a3b8;--accent:#60a5fa}
+    body{font-family:Inter,ui-sans-serif,system-ui,Segoe UI,Roboto,Helvetica,Arial;margin:0;background:linear-gradient(180deg,#071028 0%, #081029 100%);color:#e6eef6}
+    .wrap{max-width:1000px;margin:32px auto;padding:24px}
+    header{display:flex;align-items:center;gap:16px}
+    h1{margin:0;font-size:20px}
+    .grid{display:grid;grid-template-columns:320px 1fr;gap:18px;margin-top:18px}
+    .card{background:var(--card);border-radius:12px;padding:14px;box-shadow:0 6px 18px rgba(2,6,23,.6)}
+    label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
+    input[type=number],select,input[type=text]{width:100%;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,.04);background:rgba(255,255,255,.02);color:inherit}
+    button{background:var(--accent);border:none;padding:8px 10px;border-radius:8px;color:#02203b;cursor:pointer;font-weight:600}
+    .muted{color:var(--muted);font-size:13px}
+    .accounts{display:flex;flex-direction:column;gap:12px}
+    .account-line{display:flex;justify-content:space-between;align-items:center;padding:10px;border-radius:8px;background:linear-gradient(180deg, rgba(255,255,255,0.02), transparent)}
+    .controls{display:flex;gap:8px;margin-top:10px}
+    .log{height:300px;overflow:auto;background:#051024;padding:10px;border-radius:8px;margin-top:10px;font-size:13px}
+    .balance{font-size:20px;font-weight:700}
+    .row{display:flex;gap:8px;align-items:center}
+    footer{margin-top:14px;color:var(--muted);font-size:13px}
+    .small-btn{padding:6px 8px;border-radius:8px;background:transparent;border:1px solid rgba(255,255,255,.04);color:var(--muted);cursor:pointer}
+    .strategy-info{margin-top:10px;background:rgba(255,255,255,.02);padding:8px;border-radius:8px}
+    .cmd-btn{background:#34d399;color:#02203b}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <img src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='36' height='36'><rect rx='6' width='36' height='36' fill='%2360a5fa'/><text x='50%' y='56%' font-size='18' text-anchor='middle' fill='%2302141b' font-family='Arial' font-weight='700'>B</text></svg>" alt="logo" />
+      <div>
+        <h1>Banking Patterns Demo</h1>
+        <div class="muted">Demonstrates <strong>Observer</strong>, <strong>Strategy</strong>, and <strong>Command</strong> patterns in a small banking UI.</div>
+      </div>
+    </header>
+
+    <div class="grid">
+      <div>
+        <div class="card">
+          <label for="accountSelect">Select account</label>
+          <select id="accountSelect"></select>
+
+          <div class="accounts" id="accountsList" style="margin-top:14px"></div>
+
+          <div style="margin-top:12px">
+            <label for="amount">Amount</label>
+            <input id="amount" type="number" min="0" value="100" />
+            <div class="controls">
+              <button id="depositBtn" class="cmd-btn">Deposit</button>
+              <button id="withdrawBtn" class="cmd-btn">Withdraw</button>
+              <button id="transferBtn">Transfer</button>
+              <button id="undoBtn" class="small-btn">Undo</button>
+            </div>
+          </div>
+
+          <div style="margin-top:12px">
+            <label for="strategySelect">Interest Strategy</label>
+            <select id="strategySelect">
+              <option value="fixed">Fixed (3%)</option>
+              <option value="tiered">Tiered (1%/2%/3%)</option>
+            </select>
+            <div class="row" style="margin-top:8px">
+              <button id="applyInterest">Apply Interest</button>
+              <div id="strategyDesc" class="muted" style="margin-left:8px">Fixed: 3% of balance</div>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="card" style="margin-top:12px">
+          <h3 style="margin:0 0 8px 0">Activity Log</h3>
+          <div id="activityLog" class="log"></div>
+        </div>
+
+      </div>
+
+      <div>
+        <div class="card">
+          <h3 style="margin-top:0">Account View (Observer)</h3>
+          <div class="row" style="justify-content:space-between;align-items:center">
+            <div>
+              <div class="muted">Current account</div>
+              <div id="currentName" class="balance">—</div>
+            </div>
+            <div>
+              <div class="muted">Balance</div>
+              <div id="currentBalance" class="balance">₹0.00</div>
+            </div>
+          </div>
+
+          <div class="strategy-info" id="moreInfo">
+            <div class="muted">Command history size: <span id="histSize">0</span></div>
+            <div class="muted">Observers subscribed: <span id="obsCount">0</span></div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:12px">
+          <h3 style="margin:0 0 8px 0">Explanation</h3>
+          <p class="muted" style="margin:0">Observer: UI components subscribe to account changes and update automatically.<br/>Strategy: Interest calculation is pluggable via strategies.<br/>Command: Banking actions are commands with execute() and undo().</p>
+        </div>
+      </div>
+    </div>
+
+    <footer>Try deposits, withdrawals, transfers, switch interest strategies, apply interest, and undo the last command.</footer>
+  </div>
+
+  <script>
+  /***** Domain & Patterns Implementation (in plain JS) *****/
+
+  // Observer pattern: Subject (Account) and observers subscribe to updates
+  class Account {
+    constructor(id, name, balance=0){
+      this.id = id; this.name = name; this.balance = balance; this.observers = new Set();
+    }
+    subscribe(obs){ this.observers.add(obs); updateUIObservers(); }
+    unsubscribe(obs){ this.observers.delete(obs); updateUIObservers(); }
+    notify(){ this.observers.forEach(o => o.update(this)); }
+    deposit(amount){ this.balance += amount; this._changed('deposit', amount); }
+    withdraw(amount){ if(amount > this.balance) throw new Error('Insufficient funds'); this.balance -= amount; this._changed('withdraw', amount); }
+    _changed(type, amount){ this.notify(); }
+  }
+
+  // Observer examples: simple UI widgets
+  class BalanceWidget {
+    constructor(balanceEl, nameEl){ this.balanceEl = balanceEl; this.nameEl = nameEl; }
+    update(account){ this.balanceEl.textContent = formatCurrency(account.balance); this.nameEl.textContent = account.name; }
+  }
+
+  class ActivityObserver {
+    constructor(logEl){ this.logEl = logEl; }
+    update(account){ const el = document.createElement('div'); el.textContent = Account ${account.name} updated. Balance: ${formatCurrency(account.balance)}; this.logEl.prepend(el); }
+  }
+
+  // Strategy pattern: interest calculation
+  class InterestStrategy { apply(balance) { throw new Error('override'); } }
+  class FixedInterestStrategy extends InterestStrategy { constructor(rate){ super(); this.rate = rate; } apply(balance){ return balance * this.rate; } }
+  class TieredInterestStrategy extends InterestStrategy { // simple tiered
+    apply(balance){
+      if(balance < 1000) return balance * 0.01;
+      if(balance < 5000) return balance * 0.02;
+      return balance * 0.03;
+    }
+  }
+
+  // Command pattern: base + concrete commands with undo
+  class Command {
+    constructor(){}
+    execute(){ throw new Error('execute()'); }
+    undo(){ throw new Error('undo()'); }
+    describe(){ return 'Command'; }
+  }
+
+  class DepositCommand extends Command {
+    constructor(account, amount){ super(); this.account = account; this.amount = amount; }
+    execute(){ this.account.deposit(this.amount); }
+    undo(){ this.account.withdraw(this.amount); }
+    describe(){ return Deposit ₹${this.amount.toFixed(2)} to ${this.account.name}; }
+  }
+
+  class WithdrawCommand extends Command {
+    constructor(account, amount){ super(); this.account = account; this.amount = amount; }
+    execute(){ this.account.withdraw(this.amount); }
+    undo(){ this.account.deposit(this.amount); }
+    describe(){ return Withdraw ₹${this.amount.toFixed(2)} from ${this.account.name}; }
+  }
+
+  class TransferCommand extends Command {
+    constructor(fromAccount, toAccount, amount){ super(); this.from = fromAccount; this.to = toAccount; this.amount = amount; }
+    execute(){ this.from.withdraw(this.amount); this.to.deposit(this.amount); }
+    undo(){ this.to.withdraw(this.amount); this.from.deposit(this.amount); }
+    describe(){ return Transfer ₹${this.amount.toFixed(2)} from ${this.from.name} to ${this.to.name}; }
+  }
+
+  // Simple Command Manager
+  class CommandManager {
+    constructor(){ this.history = []; }
+    execute(cmd){ cmd.execute(); this.history.push(cmd); addActivity(cmd.describe()); updateHistSize(); }
+    undo(){ const cmd = this.history.pop(); if(!cmd) return; cmd.undo(); addActivity('UNDO: ' + cmd.describe()); updateHistSize(); }
+  }
+
+  /***** App wiring & UI helpers *****/
+  const accounts = [ new Account(1,'Savings - Alice', 2500), new Account(2,'Checking - Bob', 800), new Account(3,'Joint - Family', 4200) ];
+  const manager = new CommandManager();
+
+  // UI refs
+  const accountSelect = document.getElementById('accountSelect');
+  const accountsList = document.getElementById('accountsList');
+  const currentBalance = document.getElementById('currentBalance');
+  const currentName = document.getElementById('currentName');
+  const amountInput = document.getElementById('amount');
+  const depositBtn = document.getElementById('depositBtn');
+  const withdrawBtn = document.getElementById('withdrawBtn');
+  const transferBtn = document.getElementById('transferBtn');
+  const activityLog = document.getElementById('activityLog');
+  const undoBtn = document.getElementById('undoBtn');
+  const strategySelect = document.getElementById('strategySelect');
+  const applyInterestBtn = document.getElementById('applyInterest');
+  const strategyDesc = document.getElementById('strategyDesc');
+  const histSize = document.getElementById('histSize');
+  const obsCount = document.getElementById('obsCount');
+
+  // Observers for the selected account view
+  const balanceWidget = new BalanceWidget(currentBalance, currentName);
+  const activityObserver = new ActivityObserver(activityLog);
+
+  let selectedAccount = accounts[0];
+
+  function init(){
+    accounts.forEach(a => {
+      const opt = document.createElement('option'); opt.value = a.id; opt.textContent = ${a.name}; accountSelect.appendChild(opt);
+    });
+
+    renderAccountsList();
+    selectAccount(selectedAccount.id);
+    updateStrategyDesc();
+    updateHistSize();
+  }
+
+  function renderAccountsList(){
+    accountsList.innerHTML = '';
+    accounts.forEach(a => {
+      const el = document.createElement('div'); el.className = 'account-line';
+      el.innerHTML = <div><strong>${a.name}</strong><div class='muted'>ID: ${a.id}</div></div><div><div>${formatCurrency(a.balance)}</div></div>;
+      accountsList.appendChild(el);
+    });
+  }
+
+  function selectAccount(id){
+    const acc = accounts.find(x => x.id == id);
+    if(!acc) return;
+    // unsubscribe all observers from previous account to avoid duplicate subscriptions
+    accounts.forEach(a => { a.unsubscribe(balanceWidget); a.unsubscribe(activityObserver); });
+
+    // subscribe widgets to current account (Observer pattern)
+    acc.subscribe(balanceWidget);
+    acc.subscribe(activityObserver);
+
+    selectedAccount = acc;
+    balanceWidget.update(acc);
+    updateUIObservers();
+  }
+
+  function updateUIObservers(){
+    // Count total subscriptions across accounts
+    let count=0; accounts.forEach(a=> count += a.observers.size);
+    obsCount.textContent = count;
+  }
+
+  function addActivity(text){
+    const el = document.createElement('div'); el.textContent = ${new Date().toLocaleTimeString()} — ${text}; activityLog.prepend(el);
+    renderAccountsList();
+  }
+
+  function updateHistSize(){ histSize.textContent = manager.history.length; }
+
+  function formatCurrency(n){ return ₹${n.toFixed(2)}; }
+
+  // Wire up controls (command execution)
+  depositBtn.addEventListener('click', ()=>{
+    const amt = Number(amountInput.value);
+    if(!amt || amt <= 0) return alert('Enter a positive amount');
+    const cmd = new DepositCommand(selectedAccount, amt);
+    try{ manager.execute(cmd); } catch(e){ alert(e.message); }
+  });
+
+  withdrawBtn.addEventListener('click', ()=>{
+    const amt = Number(amountInput.value);
+    if(!amt || amt <= 0) return alert('Enter a positive amount');
+    const cmd = new WithdrawCommand(selectedAccount, amt);
+    try{ manager.execute(cmd); } catch(e){ alert(e.message); }
+  });
+
+  transferBtn.addEventListener('click', ()=>{
+    const amt = Number(amountInput.value);
+    if(!amt || amt <= 0) return alert('Enter a positive amount');
+    const otherId = prompt('Transfer to account id (e.g. 1,2,3)');
+    const target = accounts.find(a => a.id == Number(otherId));
+    if(!target) return alert('Invalid target account');
+    if(target.id === selectedAccount.id) return alert('Cannot transfer to same account');
+    const cmd = new TransferCommand(selectedAccount, target, amt);
+    try{ manager.execute(cmd); } catch(e){ alert(e.message); }
+  });
+
+  undoBtn.addEventListener('click', ()=>{ manager.undo(); renderAccountsList(); updateHistSize(); updateUIObservers(); });
+
+  accountSelect.addEventListener('change', (e)=> selectAccount(Number(e.target.value)));
+
+  strategySelect.addEventListener('change', updateStrategyDesc);
+
+  applyInterestBtn.addEventListener('click', ()=>{
+    let strat;
+    if(strategySelect.value === 'fixed') strat = new FixedInterestStrategy(0.03);
+    else strat = new TieredInterestStrategy();
+
+    // apply interest as a deposit command (so it's undoable)
+    const interest = strat.apply(selectedAccount.balance);
+    if(interest <= 0) return alert('No interest to apply');
+    const cmd = new DepositCommand(selectedAccount, Number(interest.toFixed(2)));
+    manager.execute(cmd);
+  });
+
+  function updateStrategyDesc(){
+    if(strategySelect.value === 'fixed') strategyDesc.textContent = 'Fixed: 3% of balance';
+    else strategyDesc.textContent = 'Tiered: <1k=1%, <5k=2%, >=5k=3%';
+  }
+
+  // Initialize UI
+  init();
+
+  // Expose for debugging in console (optional)
+  window._demo = { accounts, manager };
+  </script>
+</body>
+</html>
